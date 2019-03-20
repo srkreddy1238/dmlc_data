@@ -459,12 +459,12 @@ def setup_and_make_pb():
 
 def untar(fname):
     file_tar, file_tar_ext = os.path.splitext(fname)
-    if (fname.endswith("gz")):
-        file_tar, file_tar_ext = os.path.splitext(file_tar)
+    if (fname.endswith("tgz")):
         tar = tarfile.open('./data/models_dload/' +fname)
         tar.extractall(path="./data/models_dload/" + file_tar)
         tar.close()
-    elif (fname.endswith("tgz")):
+    elif (fname.endswith("gz")):
+        file_tar, file_tar_ext = os.path.splitext(file_tar)
         tar = tarfile.open('./data/models_dload/' +fname)
         tar.extractall(path="./data/models_dload/" + file_tar)
         tar.close()
@@ -493,13 +493,15 @@ def download_models_from_repo():
         file_tar, file_ext = os.path.splitext(tar_name)
 
         if 'ckpt_name' in model: # check point based models
-            file_tar, file_ext = os.path.splitext(tar_name)
+            file_tar, file_ext = os.path.splitext(file_tar)
+            print("CKPT:", './data/models_dload/' + file_tar + '/' + model['ckpt_name'])
             if not os.path.exists('./data/models_dload/' + file_tar + '/' + model['ckpt_name']):
                 folder = get_workload(model['dload_url'])
                 model['folder'] = folder
             else:
                 model['folder'] = './data/models_dload/' + file_tar
-        else: # Frozen models already available
+        else: # Frozen models
+            print("PB:", './data/models_dload/' + file_tar + '/' + model['pb'])
             if not os.path.exists('./data/models_dload/' + file_tar + '/' + model['pb']):
                 folder = get_workload(model['dload_url'])
                 model['folder'] = folder
@@ -584,6 +586,7 @@ def run_tf_graph(sess, input_data, input_node, output_node):
 
 def compile_test_tvm_tf():
     for model in models:
+        tf.reset_default_graph()
         with tf.Graph().as_default():
             print("Model:", model)
             model_name = model['pb']
@@ -605,11 +608,19 @@ def compile_test_tvm_tf():
                     # Add shapes to the graph.
                     graph_def = tf_testing.AddShapesToGraphDef(sess, out_node_name)
                     tf_output = run_tf_graph(sess, data, in_node_name + ':0', out_node_name + ':0')
-                    tvm_output = run_tvm_graph(graph_def, data, in_node_name)
+                    #tvm_output = run_tvm_graph(graph_def, data, in_node_name, target='cuda') # For cuda
+                    tvm_output = run_tvm_graph(graph_def, data, in_node_name, target='llvm')
                     np.testing.assert_allclose(np.squeeze(tvm_output), np.squeeze(tf_output), rtol=1e-5, atol=1e-5)
 
 # --------- MAIN ---------------------
+# Git clone tensorflow models project and generate graphs
 setup_and_make_pb()
+
+# Download model checkpoints or frozen models
 download_models_from_repo()
+
+# Generate protobuf for checkpoint based models.
 gen_protobuf_from_ckpt()
+
+# Test with TVM and TF and compare.
 compile_test_tvm_tf()
